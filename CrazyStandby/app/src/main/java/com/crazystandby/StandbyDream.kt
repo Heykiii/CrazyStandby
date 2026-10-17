@@ -1,7 +1,7 @@
 package com.crazystandby
 
 import android.service.dreams.DreamService
-import java.util.Calendar
+import kotlin.math.max
 
 class StandbyDream : DreamService() {
     override fun onAttachedToWindow() {
@@ -10,17 +10,13 @@ class StandbyDream : DreamService() {
         isFullscreen = true
         setContentView(FlowClockView(this))
 
-        if (Prefs.dimAtNight(this)) {
-            val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
-            if (hour >= 23 || hour < 6) {
-                try {
-                    val lp = window.attributes
-                    lp.screenBrightness = 0.08f
-                    window.attributes = lp
-                } catch (e: Exception) {
-                    // ignore: dimming is optional
-                }
-            }
+        // The screen saver starts when charging begins, so lower the brightness here.
+        try {
+            val lp = window.attributes
+            lp.screenBrightness = max(0.01f, Prefs.brightness(this) / 100f)
+            window.attributes = lp
+        } catch (e: Exception) {
+            // ignore: dimming is optional
         }
     }
 }

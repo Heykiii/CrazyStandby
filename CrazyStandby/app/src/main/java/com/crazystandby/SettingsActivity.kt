@@ -1,10 +1,8 @@
 package com.crazystandby
 
-import android.Manifest
 import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -14,16 +12,20 @@ import android.view.View
 import android.widget.Button
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
-import android.widget.RadioButton
-import android.widget.RadioGroup
 import android.widget.ScrollView
+import android.widget.SeekBar
 import android.widget.Switch
 import android.widget.TextView
 
 class SettingsActivity : Activity() {
 
     private lateinit var preview: FlowClockView
-    private lateinit var calBtn: Button
+
+    private fun setWindowBrightness(v: Float) {
+        val lp = window.attributes
+        lp.screenBrightness = v
+        window.attributes = lp
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -50,31 +52,13 @@ class SettingsActivity : Activity() {
             setTextColor(Color.WHITE)
         })
 
-        // ---- live preview ----
+        // ---- preview ----
         root.addView(label("Preview"))
         preview = FlowClockView(ctx)
         root.addView(
             preview,
             LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(210))
         )
-
-        // ---- style ----
-        root.addView(label("Style"))
-        val group = RadioGroup(ctx)
-        Prefs.STYLE_NAMES.forEachIndexed { i, name ->
-            val rb = RadioButton(ctx)
-            rb.id = 1000 + i
-            rb.text = name
-            rb.textSize = 16f
-            rb.setTextColor(Color.WHITE)
-            group.addView(rb)
-        }
-        group.check(1000 + Prefs.style(ctx))
-        group.setOnCheckedChangeListener { _, id ->
-            Prefs.setStyle(ctx, id - 1000)
-            preview.reload()
-        }
-        root.addView(group)
 
         // ---- color ----
         root.addView(label("Color"))
@@ -105,6 +89,30 @@ class SettingsActivity : Activity() {
         refreshSwatches()
         root.addView(HorizontalScrollView(ctx).apply { addView(row) })
 
+        // ---- brightness while charging ----
+        val brightLabel = label("Brightness while charging: ${Prefs.brightness(ctx)}%")
+        root.addView(brightLabel)
+        val seek = SeekBar(ctx)
+        seek.max = 99
+        seek.progress = Prefs.brightness(ctx) - 1
+        seek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(sb: SeekBar?, progress: Int, fromUser: Boolean) {
+                val pct = progress + 1
+                brightLabel.text = "Brightness while charging: $pct%"
+                if (fromUser) {
+                    Prefs.setBrightness(ctx, pct)
+                    setWindowBrightness(pct / 100f)   // live demo on this screen
+                }
+            }
+
+            override fun onStartTrackingTouch(sb: SeekBar?) {}
+
+            override fun onStopTrackingTouch(sb: SeekBar?) {
+                setWindowBrightness(-1f)              // back to normal brightness
+            }
+        })
+        root.addView(seek)
+
         // ---- options ----
         root.addView(label("Options"))
         root.addView(Switch(ctx).apply {
@@ -116,19 +124,6 @@ class SettingsActivity : Activity() {
                 preview.reload()
             }
         })
-        root.addView(Switch(ctx).apply {
-            text = "Dim screen at night (23:00 - 06:00)"
-            setTextColor(Color.WHITE)
-            isChecked = Prefs.dimAtNight(ctx)
-            setOnCheckedChangeListener { _, v -> Prefs.setDimAtNight(ctx, v) }
-        })
-
-        calBtn = Button(ctx)
-        calBtn.text = "Allow calendar access (for Calendar style)"
-        calBtn.setOnClickListener {
-            requestPermissions(arrayOf(Manifest.permission.READ_CALENDAR), 1)
-        }
-        root.addView(calBtn)
 
         val saverBtn = Button(ctx)
         saverBtn.text = "Open screen saver settings"
@@ -145,26 +140,5 @@ class SettingsActivity : Activity() {
             setBackgroundColor(Color.BLACK)
             addView(root)
         })
-    }
-
-    override fun onResume() {
-        super.onResume()
-        updateCalBtn()
-    }
-
-    private fun updateCalBtn() {
-        val ok = checkSelfPermission(Manifest.permission.READ_CALENDAR) ==
-            PackageManager.PERMISSION_GRANTED
-        calBtn.visibility = if (ok) View.GONE else View.VISIBLE
-    }
-
-    override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<out String>,
-        grantResults: IntArray
-    ) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        updateCalBtn()
-        preview.reload()
     }
 }
