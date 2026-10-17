@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="eerie_black">#212121</color>
+    <color name="honeydew">#F0FFF0</color>
+    <color name="vanilla">#EFF0A5</color>
+    <color name="ghost_white">#F8F8FF</color>
+    <color name="alice_blue">#F0F8FF</color>
+    <color name="chocolate">#D2691E</color>
+    <color name="alice_dim">#80F0F8FF</color>
+</resources>

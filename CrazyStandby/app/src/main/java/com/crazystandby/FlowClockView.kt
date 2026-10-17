@@ -344,14 +344,14 @@ class FlowClockView(ctx: Context) : View(ctx) {
             val r1 = r * 0.95f
             val r2 = r1 - r * (if (major) 0.07f else 0.035f)
             p.strokeWidth = r * (if (major) 0.016f else 0.008f)
-            p.color = if (major) 0xFFD9D9DC.toInt() else 0xFF6A6A70.toInt()
+            p.color = if (major) accent else 0xFF6A6A70.toInt()
             c.drawLine(cx + r1 * sa, cy - r1 * ca, cx + r2 * sa, cy - r2 * ca, p)
         }
 
         // hour numbers
         pr()
         p.typeface = tfLight
-        p.color = 0xFFE6E6E9.toInt()
+        p.color = withAlpha(accent, 0xE0)
         p.textAlign = Paint.Align.CENTER
         p.textSize = r * 0.16f
         for (n in 1..12) {
@@ -367,12 +367,12 @@ class FlowClockView(ctx: Context) : View(ctx) {
         val sec = cal.get(Calendar.SECOND) + cal.get(Calendar.MILLISECOND) / 1000f
         val minF = cal.get(Calendar.MINUTE) + sec / 60f
         val hrF = (cal.get(Calendar.HOUR) % 12) + minF / 60f
-        hand(c, cx, cy, hrF * 30f, r * 0.50f, r * 0.030f, 0xFFF2F2F4.toInt(), 0f)
-        hand(c, cx, cy, minF * 6f, r * 0.78f, r * 0.020f, 0xFFF2F2F4.toInt(), 0f)
+        hand(c, cx, cy, hrF * 30f, r * 0.50f, r * 0.030f, accent, 0f)
+        hand(c, cx, cy, minF * 6f, r * 0.78f, r * 0.020f, accent, 0f)
         hand(c, cx, cy, sec * 6f, r * 0.88f, r * 0.008f, 0xFFB5B5BA.toInt(), r * 0.14f)
 
         pr()
-        p.color = 0xFFF2F2F4.toInt()
+        p.color = accent
         c.drawCircle(cx, cy, r * 0.03f, p)
     }
 
@@ -454,7 +454,7 @@ class FlowClockView(ctx: Context) : View(ctx) {
         pr()
         p.typeface = tfBold
         p.textAlign = align
-        p.color = Color.WHITE
+        p.color = accent
         fit(temp(wd.tempC), maxW, sTemp)
         c.drawText(temp(wd.tempC), x, yTemp, p)
 

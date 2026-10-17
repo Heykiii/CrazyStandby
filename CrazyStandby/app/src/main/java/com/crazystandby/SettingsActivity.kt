@@ -4,15 +4,17 @@ import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.graphics.Color
-import android.graphics.Typeface
+import android.graphics.Outline
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.provider.Settings
+import android.view.Gravity
 import android.view.View
+import android.view.ViewOutlineProvider
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.EditText
-import android.widget.HorizontalScrollView
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.RadioButton
 import android.widget.RadioGroup
@@ -38,40 +40,83 @@ class SettingsActivity : Activity() {
         val d = resources.displayMetrics.density
         fun dp(v: Int) = (v * d).toInt()
 
-        fun label(t: String) = TextView(ctx).apply {
-            text = t
-            setTextColor(Color.WHITE)
-            textSize = 15f
-            setTypeface(typeface, Typeface.BOLD)
-            setPadding(0, dp(22), 0, dp(8))
+        val ink = Palette.GHOST_WHITE
+        val dim = withAlpha(Palette.ALICE_BLUE, 0x99)
+        val line = withAlpha(Palette.ALICE_BLUE, 0x33)
+
+        fun section(t: String) = TextView(ctx).apply {
+            text = t.uppercase()
+            setTextColor(dim)
+            textSize = 12f
+            letterSpacing = 0.14f
+            setPadding(0, dp(34), 0, dp(10))
+        }
+
+        fun flatButton(t: String, onClick: () -> Unit): Button {
+            val b = Button(ctx)
+            b.text = t
+            b.isAllCaps = false
+            b.setTextColor(ink)
+            b.textSize = 14f
+            val bg = GradientDrawable()
+            bg.cornerRadius = dp(12).toFloat()
+            bg.setColor(Color.TRANSPARENT)
+            bg.setStroke(dp(1), line)
+            b.background = bg
+            b.stateListAnimator = null
+            b.setOnClickListener { onClick() }
+            return b
         }
 
         val root = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(24), dp(18), dp(40))
+            setPadding(dp(24), dp(36), dp(24), dp(48))
         }
 
-        root.addView(TextView(ctx).apply {
-            text = "Crazy Standby"
-            textSize = 26f
-            setTextColor(Color.WHITE)
+        // ---- header: logo + name ----
+        val header = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val logo = ImageView(ctx)
+        logo.setImageResource(R.drawable.ic_launcher_foreground)
+        header.addView(logo, LinearLayout.LayoutParams(dp(76), dp(76)))
+        val titles = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+        titles.addView(TextView(ctx).apply {
+            text = "Still"
+            textSize = 30f
+            setTextColor(ink)
+            typeface = android.graphics.Typeface.create("sans-serif-light", android.graphics.Typeface.NORMAL)
         })
+        titles.addView(TextView(ctx).apply {
+            text = "A quiet clock while you charge"
+            textSize = 13f
+            setTextColor(dim)
+        })
+        header.addView(titles)
+        root.addView(header)
 
         // ---- preview ----
-        root.addView(label("Preview"))
+        root.addView(section("Preview"))
         preview = FlowClockView(ctx)
+        preview.outlineProvider = object : ViewOutlineProvider() {
+            override fun getOutline(view: View, outline: Outline) {
+                outline.setRoundRect(0, 0, view.width, view.height, dp(18).toFloat())
+            }
+        }
+        preview.clipToOutline = true
         root.addView(
             preview,
             LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(210))
         )
 
-        // ---- style ----
-        root.addView(label("Layout"))
-        val colorViews = ArrayList<View>()     // only for "Big time + date"
+        // ---- layout ----
+        root.addView(section("Layout"))
+        val colorViews = ArrayList<View>()     // layouts that use the clock color
         val weatherViews = ArrayList<View>()   // only for "Analog clock + weather"
         fun applyStyleUi() {
             val st = Prefs.style(ctx)
-            colorViews.forEach { it.visibility = if (st == 0) View.VISIBLE else View.GONE }
+            colorViews.forEach { it.visibility = if (st != 1) View.VISIBLE else View.GONE }
             weatherViews.forEach { it.visibility = if (st == 2) View.VISIBLE else View.GONE }
         }
         val group = RadioGroup(ctx)
@@ -80,7 +125,8 @@ class SettingsActivity : Activity() {
             rb.id = 1000 + i
             rb.text = name
             rb.textSize = 16f
-            rb.setTextColor(Color.WHITE)
+            rb.setTextColor(ink)
+            rb.setPadding(dp(10), dp(10), 0, dp(10))
             group.addView(rb)
         }
         group.check(1000 + Prefs.style(ctx))
@@ -91,43 +137,56 @@ class SettingsActivity : Activity() {
         }
         root.addView(group)
 
-        // ---- color (only for the Big time style) ----
-        val colorLabel = label("Color")
-        root.addView(colorLabel)
-        val swatches = ArrayList<View>()
-        fun refreshSwatches() {
+        // ---- clock color ----
+        val colorHead = section("Clock color")
+        root.addView(colorHead)
+        colorViews.add(colorHead)
+        val dots = ArrayList<View>()
+        val checks = ArrayList<TextView>()
+        fun refreshColors() {
             val sel = Prefs.colorIndex(ctx)
-            swatches.forEachIndexed { i, v ->
+            checks.forEachIndexed { i, t -> t.visibility = if (i == sel) View.VISIBLE else View.INVISIBLE }
+            dots.forEachIndexed { i, v ->
                 val g = GradientDrawable()
                 g.shape = GradientDrawable.OVAL
                 g.setColor(Prefs.COLORS[i])
-                if (i == sel) g.setStroke(dp(3), Color.WHITE) else g.setStroke(dp(1), 0x66FFFFFF)
+                g.setStroke(dp(1), line)
                 v.background = g
             }
         }
-        val row = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
         Prefs.COLORS.forEachIndexed { i, _ ->
-            val v = View(ctx)
-            val lp = LinearLayout.LayoutParams(dp(38), dp(38))
-            lp.rightMargin = dp(8)
-            v.setOnClickListener {
+            val row = LinearLayout(ctx)
+            row.orientation = LinearLayout.HORIZONTAL
+            row.gravity = Gravity.CENTER_VERTICAL
+            row.setPadding(0, dp(12), 0, dp(12))
+            val dot = View(ctx)
+            row.addView(dot, LinearLayout.LayoutParams(dp(24), dp(24)).also { it.rightMargin = dp(16) })
+            val name = TextView(ctx)
+            name.text = Prefs.COLOR_NAMES[i]
+            name.textSize = 16f
+            name.setTextColor(ink)
+            row.addView(name, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            val check = TextView(ctx)
+            check.text = "✓"
+            check.textSize = 16f
+            check.setTextColor(Palette.HONEYDEW)
+            row.addView(check)
+            row.setOnClickListener {
                 Prefs.setColor(ctx, i)
-                refreshSwatches()
+                refreshColors()
                 preview.reload()
             }
-            row.addView(v, lp)
-            swatches.add(v)
+            root.addView(row)
+            colorViews.add(row)
+            dots.add(dot)
+            checks.add(check)
         }
-        refreshSwatches()
-        val colorScroll = HorizontalScrollView(ctx).apply { addView(row) }
-        root.addView(colorScroll)
-        colorViews.add(colorLabel)
-        colorViews.add(colorScroll)
+        refreshColors()
 
-        // ---- weather city (only for the Analog + weather layout) ----
-        val weatherLabel = label("Weather city")
+        // ---- weather city (analog + weather layout) ----
+        val weatherHead = section("Weather city")
         val cityNow = TextView(ctx).apply {
-            setTextColor(0xFFBBBBBB.toInt())
+            setTextColor(dim)
             textSize = 14f
             setPadding(0, 0, 0, dp(8))
         }
@@ -138,8 +197,8 @@ class SettingsActivity : Activity() {
 
         val input = EditText(ctx).apply {
             hint = "Type a city name"
-            setHintTextColor(0xFF777777.toInt())
-            setTextColor(Color.WHITE)
+            setHintTextColor(withAlpha(Palette.ALICE_BLUE, 0x55))
+            setTextColor(ink)
             isSingleLine = true
             imeOptions = EditorInfo.IME_ACTION_SEARCH
         }
@@ -160,9 +219,9 @@ class SettingsActivity : Activity() {
                         val item = TextView(ctx)
                         item.text = hit.title
                         item.textSize = 16f
-                        item.setTextColor(Color.WHITE)
-                        item.setBackgroundColor(0xFF1A1A1C.toInt())
-                        item.setPadding(dp(12), dp(14), dp(12), dp(14))
+                        item.setTextColor(ink)
+                        item.setBackgroundColor(withAlpha(Palette.ALICE_BLUE, 0x14))
+                        item.setPadding(dp(14), dp(14), dp(14), dp(14))
                         item.setOnClickListener {
                             Prefs.setCity(ctx, hit.name, hit.lat, hit.lon)
                             results.removeAllViews()
@@ -187,13 +246,13 @@ class SettingsActivity : Activity() {
                 false
             }
         }
-        val searchBtn = Button(ctx)
-        searchBtn.text = "Search city"
-        searchBtn.setOnClickListener { doSearch() }
+        val searchBtn = flatButton("Search city") { doSearch() }
 
         val fSwitch = Switch(ctx)
-        fSwitch.text = "Use Fahrenheit (°F)"
-        fSwitch.setTextColor(Color.WHITE)
+        fSwitch.text = "Fahrenheit (°F)"
+        fSwitch.textSize = 16f
+        fSwitch.setTextColor(ink)
+        fSwitch.setPadding(0, dp(14), 0, dp(14))
         fSwitch.isChecked = Prefs.fahrenheit(ctx)
         fSwitch.setOnCheckedChangeListener { _, v ->
             Prefs.setFahrenheit(ctx, v)
@@ -201,19 +260,23 @@ class SettingsActivity : Activity() {
         }
 
         val note = TextView(ctx)
-        note.text = "Weather data: Open-Meteo.com. No account or location permission needed."
-        note.setTextColor(0xFF777777.toInt())
+        note.text = "Weather by Open-Meteo.com. No account and no location permission needed."
+        note.setTextColor(withAlpha(Palette.ALICE_BLUE, 0x66))
         note.textSize = 12f
-        note.setPadding(0, dp(8), 0, 0)
 
-        for (v in listOf<View>(weatherLabel, cityNow, input, searchBtn, results, fSwitch, note)) {
+        for (v in listOf<View>(weatherHead, cityNow, input, searchBtn, results, fSwitch, note)) {
             root.addView(v)
             weatherViews.add(v)
         }
         applyStyleUi()
 
         // ---- brightness while charging ----
-        val brightLabel = label("Brightness while charging: ${Prefs.brightness(ctx)}%")
+        root.addView(section("Brightness while charging"))
+        val brightLabel = TextView(ctx)
+        brightLabel.text = "${Prefs.brightness(ctx)}%"
+        brightLabel.textSize = 22f
+        brightLabel.setTextColor(ink)
+        brightLabel.typeface = android.graphics.Typeface.create("sans-serif-light", android.graphics.Typeface.NORMAL)
         root.addView(brightLabel)
         val seek = SeekBar(ctx)
         seek.max = 99
@@ -221,7 +284,7 @@ class SettingsActivity : Activity() {
         seek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(sb: SeekBar?, progress: Int, fromUser: Boolean) {
                 val pct = progress + 1
-                brightLabel.text = "Brightness while charging: $pct%"
+                brightLabel.text = "$pct%"
                 if (fromUser) {
                     Prefs.setBrightness(ctx, pct)
                     setWindowBrightness(pct / 100f)   // live demo on this screen
@@ -237,30 +300,36 @@ class SettingsActivity : Activity() {
         root.addView(seek)
 
         // ---- options ----
-        root.addView(label("Options"))
-        root.addView(Switch(ctx).apply {
-            text = "24-hour time"
-            setTextColor(Color.WHITE)
-            isChecked = Prefs.use24h(ctx)
-            setOnCheckedChangeListener { _, v ->
-                Prefs.setUse24h(ctx, v)
-                preview.reload()
-            }
-        })
+        root.addView(section("Options"))
+        val h24 = Switch(ctx)
+        h24.text = "24-hour time"
+        h24.textSize = 16f
+        h24.setTextColor(ink)
+        h24.setPadding(0, dp(14), 0, dp(14))
+        h24.isChecked = Prefs.use24h(ctx)
+        h24.setOnCheckedChangeListener { _, v ->
+            Prefs.setUse24h(ctx, v)
+            preview.reload()
+        }
+        root.addView(h24)
 
-        val saverBtn = Button(ctx)
-        saverBtn.text = "Open screen saver settings"
-        saverBtn.setOnClickListener {
+        val saverBtn = flatButton("Open screen saver settings") {
             try {
                 startActivity(Intent(Settings.ACTION_DREAM_SETTINGS))
             } catch (e: ActivityNotFoundException) {
                 startActivity(Intent(Settings.ACTION_DISPLAY_SETTINGS))
             }
         }
-        root.addView(saverBtn)
+        root.addView(
+            saverBtn,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).also { it.topMargin = dp(20) }
+        )
 
         setContentView(ScrollView(ctx).apply {
-            setBackgroundColor(Color.BLACK)
+            setBackgroundColor(Palette.EERIE_BLACK)
             addView(root)
         })
     }
