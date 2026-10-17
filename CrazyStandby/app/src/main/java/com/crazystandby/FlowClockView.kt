@@ -5,8 +5,10 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Rect
+import android.graphics.Shader
 import android.graphics.Typeface
 import android.os.BatteryManager
 import android.view.View
@@ -26,6 +28,7 @@ class FlowClockView(ctx: Context) : View(ctx) {
 
     private var accent = Color.WHITE
     private var use24h = true
+    private var style = 0
 
     private val p = Paint(Paint.ANTI_ALIAS_FLAG)
     private val tb = Rect()
@@ -35,6 +38,7 @@ class FlowClockView(ctx: Context) : View(ctx) {
 
     private val tfCond = Typeface.create("sans-serif-condensed", Typeface.BOLD)
     private val tfMed = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+    private val tfBlack = Typeface.create("sans-serif-black", Typeface.NORMAL)
 
     private var battLevel = 0
     private var charging = false
@@ -48,6 +52,7 @@ class FlowClockView(ctx: Context) : View(ctx) {
 
     /** Re-reads the saved settings. */
     fun reload() {
+        style = Prefs.style(context)
         accent = Prefs.color(context)
         use24h = Prefs.use24h(context)
         battAt = 0L
@@ -138,7 +143,7 @@ class FlowClockView(ctx: Context) : View(ctx) {
         val t = now / 60000.0
         c.save()
         c.translate((sin(t) * drift).toFloat(), (cos(t) * drift).toFloat())
-        drawClock(c, w, h, now)
+        if (style == 1) drawGradient(c, w, h) else drawClock(c, w, h, now)
         c.restore()
 
         removeCallbacks(tick)
@@ -183,6 +188,59 @@ class FlowClockView(ctx: Context) : View(ctx) {
             p.color = Color.WHITE
             p.textSize = s
             c.drawText(batText(), x0, y + s * 1.4f, p)
+        }
+    }
+
+    // ------------------------------------------------------------------ Gradient digits
+
+    private fun drawGradient(c: Canvas, w: Float, h: Float) {
+        val hs = hourStr()
+        val chars = (hs + minStr()).toCharArray()
+        val nH = hs.length
+
+        pr()
+        p.typeface = tfBlack
+        p.textSize = h * 0.95f
+        val tight = 0.93f   // pulls the digits closer together
+
+        fun total(): Float {
+            var t = 0f
+            for (ch in chars) t += p.measureText(ch.toString()) * tight
+            return t + p.textSize * 0.22f   // room for the colon
+        }
+
+        val tot0 = total()
+        if (tot0 > w * 0.92f) p.textSize = p.textSize * w * 0.92f / tot0
+        val size = p.textSize
+        val tot = total()
+        val x0 = (w - tot) / 2f
+        val cy = h * 0.5f
+        val base = baseAt("0", cy)
+        val top = base + tb.top
+        val dh = tb.height().toFloat()
+
+        // gradient colors (start, end): hours pink, minutes tens blue-violet, minutes ones purple
+        val c1 = intArrayOf(0xFFFF6EC7.toInt(), 0xFFA9A3FF.toInt(), 0xFFC83FDB.toInt())
+        val c2 = intArrayOf(0xFFE84FD9.toInt(), 0xFF8E89FF.toInt(), 0xFF9528D4.toInt())
+
+        var x = x0
+        for (i in chars.indices) {
+            val s = chars[i].toString()
+            val adv = p.measureText(s) * tight
+            val g = if (i < nH) 0 else if (i == nH) 1 else 2
+            p.shader = LinearGradient(x, top, x + adv, base, c1[g], c2[g], Shader.TileMode.CLAMP)
+            c.drawText(s, x, base, p)
+            x += adv
+
+            if (i == nH - 1) {   // grey round colon between hours and minutes
+                p.shader = null
+                p.color = 0xFF9E9E9E.toInt()
+                val r = size * 0.075f
+                val cx = x + size * 0.11f
+                c.drawCircle(cx, cy - dh * 0.2f, r, p)
+                c.drawCircle(cx, cy + dh * 0.2f, r, p)
+                x += size * 0.22f
+            }
         }
     }
 }

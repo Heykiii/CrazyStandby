@@ -6,6 +6,8 @@ import android.text.format.DateFormat
 object Prefs {
     private const val FILE = "crazy_standby"
 
+    val STYLE_NAMES = listOf("Big time + date", "Gradient digits")
+
     val COLORS = intArrayOf(
         0xFFFFFFFF.toInt(), // white
         0xFF6DB5F0.toInt(), // blue
@@ -17,6 +19,9 @@ object Prefs {
     )
 
     private fun sp(c: Context) = c.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+
+    fun style(c: Context) = sp(c).getInt("style", 0).coerceIn(0, STYLE_NAMES.size - 1)
+    fun setStyle(c: Context, v: Int) = sp(c).edit().putInt("style", v).apply()
 
     fun colorIndex(c: Context) = sp(c).getInt("color", 1).coerceIn(0, COLORS.size - 1)
     fun color(c: Context) = COLORS[colorIndex(c)]

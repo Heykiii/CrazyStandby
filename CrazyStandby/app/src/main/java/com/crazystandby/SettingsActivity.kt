@@ -12,6 +12,8 @@ import android.view.View
 import android.widget.Button
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
+import android.widget.RadioButton
+import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.Switch
@@ -60,8 +62,33 @@ class SettingsActivity : Activity() {
             LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(210))
         )
 
-        // ---- color ----
-        root.addView(label("Color"))
+        // ---- style ----
+        root.addView(label("Style"))
+        val colorViews = ArrayList<View>()
+        fun applyStyleUi() {
+            val gradient = Prefs.style(ctx) == 1
+            colorViews.forEach { it.visibility = if (gradient) View.GONE else View.VISIBLE }
+        }
+        val group = RadioGroup(ctx)
+        Prefs.STYLE_NAMES.forEachIndexed { i, name ->
+            val rb = RadioButton(ctx)
+            rb.id = 1000 + i
+            rb.text = name
+            rb.textSize = 16f
+            rb.setTextColor(Color.WHITE)
+            group.addView(rb)
+        }
+        group.check(1000 + Prefs.style(ctx))
+        group.setOnCheckedChangeListener { _, id ->
+            Prefs.setStyle(ctx, id - 1000)
+            applyStyleUi()
+            preview.reload()
+        }
+        root.addView(group)
+
+        // ---- color (only for the Big time style) ----
+        val colorLabel = label("Color")
+        root.addView(colorLabel)
         val swatches = ArrayList<View>()
         fun refreshSwatches() {
             val sel = Prefs.colorIndex(ctx)
@@ -87,7 +114,11 @@ class SettingsActivity : Activity() {
             swatches.add(v)
         }
         refreshSwatches()
-        root.addView(HorizontalScrollView(ctx).apply { addView(row) })
+        val colorScroll = HorizontalScrollView(ctx).apply { addView(row) }
+        root.addView(colorScroll)
+        colorViews.add(colorLabel)
+        colorViews.add(colorScroll)
+        applyStyleUi()
 
         // ---- brightness while charging ----
         val brightLabel = label("Brightness while charging: ${Prefs.brightness(ctx)}%")
