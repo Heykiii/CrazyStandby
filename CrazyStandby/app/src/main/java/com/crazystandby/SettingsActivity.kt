@@ -9,7 +9,9 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.provider.Settings
 import android.view.View
+import android.view.inputmethod.EditorInfo
 import android.widget.Button
+import android.widget.EditText
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.RadioButton
@@ -18,6 +20,7 @@ import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.Switch
 import android.widget.TextView
+import android.widget.Toast
 
 class SettingsActivity : Activity() {
 
@@ -63,11 +66,13 @@ class SettingsActivity : Activity() {
         )
 
         // ---- style ----
-        root.addView(label("Style"))
-        val colorViews = ArrayList<View>()
+        root.addView(label("Layout"))
+        val colorViews = ArrayList<View>()     // only for "Big time + date"
+        val weatherViews = ArrayList<View>()   // only for "Analog clock + weather"
         fun applyStyleUi() {
-            val gradient = Prefs.style(ctx) == 1
-            colorViews.forEach { it.visibility = if (gradient) View.GONE else View.VISIBLE }
+            val st = Prefs.style(ctx)
+            colorViews.forEach { it.visibility = if (st == 0) View.VISIBLE else View.GONE }
+            weatherViews.forEach { it.visibility = if (st == 2) View.VISIBLE else View.GONE }
         }
         val group = RadioGroup(ctx)
         Prefs.STYLE_NAMES.forEachIndexed { i, name ->
@@ -118,6 +123,93 @@ class SettingsActivity : Activity() {
         root.addView(colorScroll)
         colorViews.add(colorLabel)
         colorViews.add(colorScroll)
+
+        // ---- weather city (only for the Analog + weather layout) ----
+        val weatherLabel = label("Weather city")
+        val cityNow = TextView(ctx).apply {
+            setTextColor(0xFFBBBBBB.toInt())
+            textSize = 14f
+            setPadding(0, 0, 0, dp(8))
+        }
+        fun refreshCityText() {
+            cityNow.text = if (Prefs.hasCity(ctx)) "Selected: ${Prefs.cityName(ctx)}" else "No city selected"
+        }
+        refreshCityText()
+
+        val input = EditText(ctx).apply {
+            hint = "Type a city name"
+            setHintTextColor(0xFF777777.toInt())
+            setTextColor(Color.WHITE)
+            isSingleLine = true
+            imeOptions = EditorInfo.IME_ACTION_SEARCH
+        }
+        val results = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+
+        fun doSearch() {
+            val q = input.text.toString().trim()
+            if (q.length < 2) return
+            results.removeAllViews()
+            WeatherRepo.searchCity(q) { hits ->
+                results.removeAllViews()
+                if (hits == null) {
+                    Toast.makeText(ctx, "Search failed. Check your internet connection.", Toast.LENGTH_LONG).show()
+                } else if (hits.isEmpty()) {
+                    Toast.makeText(ctx, "No city found", Toast.LENGTH_SHORT).show()
+                } else {
+                    hits.forEach { hit ->
+                        val item = TextView(ctx)
+                        item.text = hit.title
+                        item.textSize = 16f
+                        item.setTextColor(Color.WHITE)
+                        item.setBackgroundColor(0xFF1A1A1C.toInt())
+                        item.setPadding(dp(12), dp(14), dp(12), dp(14))
+                        item.setOnClickListener {
+                            Prefs.setCity(ctx, hit.name, hit.lat, hit.lon)
+                            results.removeAllViews()
+                            refreshCityText()
+                            preview.reload(true)   // fetch the new city right away
+                        }
+                        val lp = LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.MATCH_PARENT,
+                            LinearLayout.LayoutParams.WRAP_CONTENT
+                        )
+                        lp.bottomMargin = dp(2)
+                        results.addView(item, lp)
+                    }
+                }
+            }
+        }
+        input.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_SEARCH) {
+                doSearch()
+                true
+            } else {
+                false
+            }
+        }
+        val searchBtn = Button(ctx)
+        searchBtn.text = "Search city"
+        searchBtn.setOnClickListener { doSearch() }
+
+        val fSwitch = Switch(ctx)
+        fSwitch.text = "Use Fahrenheit (°F)"
+        fSwitch.setTextColor(Color.WHITE)
+        fSwitch.isChecked = Prefs.fahrenheit(ctx)
+        fSwitch.setOnCheckedChangeListener { _, v ->
+            Prefs.setFahrenheit(ctx, v)
+            preview.reload()
+        }
+
+        val note = TextView(ctx)
+        note.text = "Weather data: Open-Meteo.com. No account or location permission needed."
+        note.setTextColor(0xFF777777.toInt())
+        note.textSize = 12f
+        note.setPadding(0, dp(8), 0, 0)
+
+        for (v in listOf<View>(weatherLabel, cityNow, input, searchBtn, results, fSwitch, note)) {
+            root.addView(v)
+            weatherViews.add(v)
+        }
         applyStyleUi()
 
         // ---- brightness while charging ----
