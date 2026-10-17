@@ -1,10 +1,13 @@
 package com.crazystandby
 
+import android.Manifest
 import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Outline
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.provider.Settings
@@ -27,11 +30,19 @@ import android.widget.Toast
 class SettingsActivity : Activity() {
 
     private lateinit var preview: FlowClockView
+    private lateinit var calBtn: Button
 
     private fun setWindowBrightness(v: Float) {
         val lp = window.attributes
         lp.screenBrightness = v
         window.attributes = lp
+    }
+
+    private fun refreshCalBtn() {
+        if (!::calBtn.isInitialized) return
+        val ok = checkSelfPermission(Manifest.permission.READ_CALENDAR) ==
+            PackageManager.PERMISSION_GRANTED
+        calBtn.visibility = if (Prefs.style(this) == 10 && !ok) View.VISIBLE else View.GONE
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -73,6 +84,55 @@ class SettingsActivity : Activity() {
             setPadding(dp(24), dp(36), dp(24), dp(48))
         }
 
+        // list of tappable rows with a check mark (and an optional color dot)
+        fun optionRows(
+            names: List<String>,
+            dotColors: IntArray?,
+            sel: () -> Int,
+            pick: (Int) -> Unit
+        ): List<View> {
+            val rows = ArrayList<View>()
+            val checks = ArrayList<TextView>()
+            fun refresh() {
+                val s = sel()
+                checks.forEachIndexed { i, t -> t.visibility = if (i == s) View.VISIBLE else View.INVISIBLE }
+            }
+            names.forEachIndexed { i, nm ->
+                val row = LinearLayout(ctx)
+                row.orientation = LinearLayout.HORIZONTAL
+                row.gravity = Gravity.CENTER_VERTICAL
+                row.setPadding(0, dp(12), 0, dp(12))
+                if (dotColors != null) {
+                    val dot = View(ctx)
+                    val g = GradientDrawable()
+                    g.shape = GradientDrawable.OVAL
+                    g.setColor(dotColors[i])
+                    g.setStroke(dp(1), line)
+                    dot.background = g
+                    row.addView(dot, LinearLayout.LayoutParams(dp(24), dp(24)).also { it.rightMargin = dp(16) })
+                }
+                val name = TextView(ctx)
+                name.text = nm
+                name.textSize = 16f
+                name.setTextColor(ink)
+                row.addView(name, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+                val check = TextView(ctx)
+                check.text = "✓"
+                check.textSize = 16f
+                check.setTextColor(Palette.HONEYDEW)
+                row.addView(check)
+                row.setOnClickListener {
+                    pick(i)
+                    refresh()
+                }
+                root.addView(row)
+                rows.add(row)
+                checks.add(check)
+            }
+            refresh()
+            return rows
+        }
+
         // ---- header: logo + name ----
         val header = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -86,7 +146,7 @@ class SettingsActivity : Activity() {
             text = "Still"
             textSize = 30f
             setTextColor(ink)
-            typeface = android.graphics.Typeface.create("sans-serif-light", android.graphics.Typeface.NORMAL)
+            typeface = Typeface.create("sans-serif-light", Typeface.NORMAL)
         })
         titles.addView(TextView(ctx).apply {
             text = "A quiet clock while you charge"
@@ -110,15 +170,29 @@ class SettingsActivity : Activity() {
             LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(210))
         )
 
-        // ---- layout ----
-        root.addView(section("Layout"))
-        val colorViews = ArrayList<View>()     // layouts that use the clock color
-        val weatherViews = ArrayList<View>()   // only for "Analog clock + weather"
+        // groups of views that only matter for some layouts
+        val numberViews = ArrayList<View>()
+        val colorViews = ArrayList<View>()
+        val neonViews = ArrayList<View>()
+        val conViews = ArrayList<View>()
+        val weatherViews = ArrayList<View>()
+        val calViews = ArrayList<View>()
         fun applyStyleUi() {
             val st = Prefs.style(ctx)
-            colorViews.forEach { it.visibility = if (st != 1) View.VISIBLE else View.GONE }
-            weatherViews.forEach { it.visibility = if (st == 2) View.VISIBLE else View.GONE }
+            fun show(list: List<View>, on: Boolean) {
+                list.forEach { it.visibility = if (on) View.VISIBLE else View.GONE }
+            }
+            show(numberViews, st != 4 && st != 5)
+            show(colorViews, st != 1 && st != 4 && st != 11)
+            show(neonViews, st == 4)
+            show(conViews, st == 3)
+            show(weatherViews, st == 2 || st == 9)
+            show(calViews, st == 10)
+            refreshCalBtn()
         }
+
+        // ---- layout ----
+        root.addView(section("Layout"))
         val group = RadioGroup(ctx)
         Prefs.STYLE_NAMES.forEachIndexed { i, name ->
             val rb = RadioButton(ctx)
@@ -137,53 +211,51 @@ class SettingsActivity : Activity() {
         }
         root.addView(group)
 
+        // ---- number style (font) ----
+        val numberHead = section("Number style")
+        root.addView(numberHead)
+        numberViews.add(numberHead)
+        numberViews.addAll(
+            optionRows(Prefs.NUMBER_FONT_NAMES, null, { Prefs.numberFont(ctx) }) {
+                Prefs.setNumberFont(ctx, it)
+                preview.reload()
+            }
+        )
+
         // ---- clock color ----
         val colorHead = section("Clock color")
         root.addView(colorHead)
         colorViews.add(colorHead)
-        val dots = ArrayList<View>()
-        val checks = ArrayList<TextView>()
-        fun refreshColors() {
-            val sel = Prefs.colorIndex(ctx)
-            checks.forEachIndexed { i, t -> t.visibility = if (i == sel) View.VISIBLE else View.INVISIBLE }
-            dots.forEachIndexed { i, v ->
-                val g = GradientDrawable()
-                g.shape = GradientDrawable.OVAL
-                g.setColor(Prefs.COLORS[i])
-                g.setStroke(dp(1), line)
-                v.background = g
-            }
-        }
-        Prefs.COLORS.forEachIndexed { i, _ ->
-            val row = LinearLayout(ctx)
-            row.orientation = LinearLayout.HORIZONTAL
-            row.gravity = Gravity.CENTER_VERTICAL
-            row.setPadding(0, dp(12), 0, dp(12))
-            val dot = View(ctx)
-            row.addView(dot, LinearLayout.LayoutParams(dp(24), dp(24)).also { it.rightMargin = dp(16) })
-            val name = TextView(ctx)
-            name.text = Prefs.COLOR_NAMES[i]
-            name.textSize = 16f
-            name.setTextColor(ink)
-            row.addView(name, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-            val check = TextView(ctx)
-            check.text = "✓"
-            check.textSize = 16f
-            check.setTextColor(Palette.HONEYDEW)
-            row.addView(check)
-            row.setOnClickListener {
-                Prefs.setColor(ctx, i)
-                refreshColors()
+        colorViews.addAll(
+            optionRows(Prefs.COLOR_NAMES, Prefs.COLORS, { Prefs.colorIndex(ctx) }) {
+                Prefs.setColor(ctx, it)
                 preview.reload()
             }
-            root.addView(row)
-            colorViews.add(row)
-            dots.add(dot)
-            checks.add(check)
-        }
-        refreshColors()
+        )
 
-        // ---- weather city (analog + weather layout) ----
+        // ---- neon color (wolf + moon clock) ----
+        val neonHead = section("Neon color")
+        root.addView(neonHead)
+        neonViews.add(neonHead)
+        neonViews.addAll(
+            optionRows(NEON_NAMES, NEON, { Prefs.neon(ctx) }) {
+                Prefs.setNeon(ctx, it)
+                preview.reload()
+            }
+        )
+
+        // ---- constellation (which animal) ----
+        val conHead = section("Constellation")
+        root.addView(conHead)
+        conViews.add(conHead)
+        conViews.addAll(
+            optionRows(Prefs.CON_NAMES, null, { Prefs.conMode(ctx) }) {
+                Prefs.setConMode(ctx, it)
+                preview.reload()
+            }
+        )
+
+        // ---- weather city ----
         val weatherHead = section("Weather city")
         val cityNow = TextView(ctx).apply {
             setTextColor(dim)
@@ -268,7 +340,22 @@ class SettingsActivity : Activity() {
             root.addView(v)
             weatherViews.add(v)
         }
-        applyStyleUi()
+
+        // ---- calendar access (productivity grid) ----
+        val calHead = section("Calendar")
+        val calNote = TextView(ctx)
+        calNote.text = "The agenda shows your next events. The app only reads them, it never changes anything."
+        calNote.setTextColor(dim)
+        calNote.textSize = 14f
+        calNote.setPadding(0, 0, 0, dp(8))
+        calBtn = flatButton("Allow calendar access") {
+            requestPermissions(arrayOf(Manifest.permission.READ_CALENDAR), 1)
+        }
+        root.addView(calHead)
+        root.addView(calNote)
+        root.addView(calBtn)
+        calViews.add(calHead)
+        calViews.add(calNote)
 
         // ---- brightness while charging ----
         root.addView(section("Brightness while charging"))
@@ -276,7 +363,7 @@ class SettingsActivity : Activity() {
         brightLabel.text = "${Prefs.brightness(ctx)}%"
         brightLabel.textSize = 22f
         brightLabel.setTextColor(ink)
-        brightLabel.typeface = android.graphics.Typeface.create("sans-serif-light", android.graphics.Typeface.NORMAL)
+        brightLabel.typeface = Typeface.create("sans-serif-light", Typeface.NORMAL)
         root.addView(brightLabel)
         val seek = SeekBar(ctx)
         seek.max = 99
@@ -328,9 +415,26 @@ class SettingsActivity : Activity() {
             ).also { it.topMargin = dp(20) }
         )
 
+        applyStyleUi()
+
         setContentView(ScrollView(ctx).apply {
             setBackgroundColor(Palette.EERIE_BLACK)
             addView(root)
         })
+    }
+
+    override fun onResume() {
+        super.onResume()
+        refreshCalBtn()
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        refreshCalBtn()
+        preview.reload()
     }
 }

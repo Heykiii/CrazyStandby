@@ -6,8 +6,38 @@ import android.text.format.DateFormat
 object Prefs {
     private const val FILE = "crazy_standby"
 
-    // index 0, 1, 2 are used by FlowClockView
-    val STYLE_NAMES = listOf("Big time + date", "Colorful digital clock", "Analog clock + weather")
+    // The index is the style number used by FlowClockView. Keep the order stable.
+    val STYLE_NAMES = listOf(
+        "Big time + date",           // 0
+        "Colorful digital clock",    // 1
+        "Analog clock + weather",    // 2
+        "Constellation animals",     // 3
+        "Neon wolf + moon clock",    // 4
+        "Pixel pet companion",       // 5
+        "Retro flip clock",          // 6
+        "Dual ring (battery + minutes)", // 7
+        "Bold modern block",         // 8
+        "Ambient weather + time",    // 9
+        "Productivity grid (agenda)",// 10
+        "Soft glow (sleep mode)",    // 11
+        "Artistic kinetic"           // 12
+    )
+
+    val NUMBER_FONT_NAMES = listOf(
+        "System default",
+        "Give You Glory",
+        "Calligraphy (Zapfino-style)",
+        "Baseball",
+        "Varsity"
+    )
+
+    val CON_NAMES = listOf(
+        "Auto: zodiac season",
+        "Auto: day of the week",
+        "Ursa Major (bear)",
+        "Leo (lion)",
+        "Pegasus (horse)"
+    )
 
     // Clock colors the user can choose from (see Palette below)
     val COLORS = intArrayOf(
@@ -34,6 +64,15 @@ object Prefs {
     /** Screen brightness while charging, in percent (1..100). */
     fun brightness(c: Context) = sp(c).getInt("bright", 15).coerceIn(1, 100)
     fun setBrightness(c: Context, v: Int) = sp(c).edit().putInt("bright", v).apply()
+
+    fun numberFont(c: Context) = sp(c).getInt("numfont", 0).coerceIn(0, NUMBER_FONT_NAMES.size - 1)
+    fun setNumberFont(c: Context, v: Int) = sp(c).edit().putInt("numfont", v).apply()
+
+    fun neon(c: Context) = sp(c).getInt("neon", 0).coerceIn(0, 2)
+    fun setNeon(c: Context, v: Int) = sp(c).edit().putInt("neon", v).apply()
+
+    fun conMode(c: Context) = sp(c).getInt("con", 0).coerceIn(0, CON_NAMES.size - 1)
+    fun setConMode(c: Context, v: Int) = sp(c).edit().putInt("con", v).apply()
 
     // ---- weather ----
     fun fahrenheit(c: Context) = sp(c).getBoolean("fahrenheit", false)

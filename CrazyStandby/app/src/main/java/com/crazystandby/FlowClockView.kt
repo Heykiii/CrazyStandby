@@ -1,8 +1,10 @@
 package com.crazystandby
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
@@ -12,6 +14,7 @@ import android.graphics.Rect
 import android.graphics.Shader
 import android.graphics.Typeface
 import android.os.BatteryManager
+import android.provider.CalendarContract
 import android.view.View
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -29,38 +32,71 @@ import kotlin.math.sin
  */
 class FlowClockView(ctx: Context) : View(ctx) {
 
-    private enum class Wx { SUN, PARTLY, CLOUD, FOG, RAIN, SNOW, STORM }
+    internal enum class Wx { SUN, PARTLY, CLOUD, FOG, RAIN, SNOW, STORM }
 
     private var style = 0
-    private var accent = Color.WHITE
-    private var use24h = true
-    private var fahrenheit = false
+    internal var accent = Color.WHITE
+    internal var use24h = true
+    internal var fahrenheit = false
 
-    private val p = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val tb = Rect()
-    private val cal: Calendar = Calendar.getInstance()
+    internal val p = Paint(Paint.ANTI_ALIAS_FLAG)
+    internal val tb = Rect()
+    internal val cal: Calendar = Calendar.getInstance()
     private val loc: Locale = Locale.getDefault()
     private val fmts = HashMap<String, SimpleDateFormat>()
 
-    private val tfCond = Typeface.create("sans-serif-condensed", Typeface.BOLD)
-    private val tfMed = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-    private val tfBlack = Typeface.create("sans-serif-black", Typeface.NORMAL)
-    private val tfLight = Typeface.create("sans-serif-light", Typeface.NORMAL)
-    private val tfBold = Typeface.create("sans-serif", Typeface.BOLD)
+    internal val tfCond = Typeface.create("sans-serif-condensed", Typeface.BOLD)
+    internal val tfMed = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+    internal val tfBlack = Typeface.create("sans-serif-black", Typeface.NORMAL)
+    internal val tfLight = Typeface.create("sans-serif-light", Typeface.NORMAL)
+    internal val tfBold = Typeface.create("sans-serif", Typeface.BOLD)
 
-    private var battLevel = 0
-    private var charging = false
+    internal var battLevel = 0
+    internal var charging = false
     private var battAt = 0L
 
     // weather (style 2)
-    private var weather: WeatherData? = null
-    private var cityLabel = ""
-    private var hasCity = false
+    internal var weather: WeatherData? = null
+    internal var cityLabel = ""
+    internal var hasCity = false
     private var weatherCheckAt = 0L
     private var forceWeather = false
-    private var loadedOnce = false
+    internal var loadedOnce = false
+
+    // set by the style drawing functions: >0 means "redraw again after this many ms"
+    internal var frameMs = 0L
+
+    // number style (font) chosen by the user; null = built-in font of each layout
+    internal var numFace: Typeface? = null
+    internal var neonIdx = 0
+    internal var conMode = 0
+    internal var fastCharging = false
+
+    // calendar agenda (productivity grid)
+    internal var events: List<Ev> = emptyList()
+    internal var calOk = false
+    private var evAt = 0L
+
+    // retro flip clock state (hours, minutes)
+    internal val flipCur = Array(2) { "" }
+    internal val flipPrev = Array(2) { "" }
+    internal val flipT = LongArray(2)
 
     private val tick = Runnable { invalidate() }
+
+    internal fun digitFace(def: Typeface): Typeface = numFace ?: def
+
+    private fun loadFace(i: Int): Typeface? = try {
+        when (i) {
+            1 -> context.resources.getFont(R.font.give_you_glory)
+            2 -> context.resources.getFont(R.font.calligraphy)
+            3 -> context.resources.getFont(R.font.baseball)
+            4 -> context.resources.getFont(R.font.varsity)
+            else -> null
+        }
+    } catch (e: Exception) {
+        null
+    }
 
     init {
         reload()
@@ -74,7 +110,12 @@ class FlowClockView(ctx: Context) : View(ctx) {
         fahrenheit = Prefs.fahrenheit(context)
         hasCity = Prefs.hasCity(context)
         cityLabel = Prefs.cityName(context)
-        weather = if (style == 2) WeatherRepo.cached(context) else null
+        weather = if (style == 2 || style == 9) WeatherRepo.cached(context) else null
+        numFace = loadFace(Prefs.numberFont(context))
+        neonIdx = Prefs.neon(context)
+        conMode = Prefs.conMode(context)
+        for (i in 0..1) flipCur[i] = ""
+        evAt = 0L
         loadedOnce = false
         weatherCheckAt = 0L
         this.forceWeather = forceWeather
@@ -89,18 +130,18 @@ class FlowClockView(ctx: Context) : View(ctx) {
 
     // ------------------------------------------------------------------ helpers
 
-    private fun pr() {
+    internal fun pr() {
         p.reset()
         p.isAntiAlias = true
     }
 
-    private fun fmt(pattern: String, now: Long): String {
+    internal fun fmt(pattern: String, now: Long): String {
         val f = fmts.getOrPut(pattern) { SimpleDateFormat(pattern, loc) }
         f.timeZone = TimeZone.getDefault()   // follows time-zone / DST changes
         return f.format(Date(now))
     }
 
-    private fun hourStr(): String {
+    internal fun hourStr(): String {
         val h = if (use24h) {
             cal.get(Calendar.HOUR_OF_DAY)
         } else {
@@ -110,21 +151,21 @@ class FlowClockView(ctx: Context) : View(ctx) {
         return h.toString()
     }
 
-    private fun minStr() = String.format(Locale.ROOT, "%02d", cal.get(Calendar.MINUTE))
+    internal fun minStr() = String.format(Locale.ROOT, "%02d", cal.get(Calendar.MINUTE))
 
-    private fun fit(s: String, maxW: Float, start: Float) {
+    internal fun fit(s: String, maxW: Float, start: Float) {
         p.textSize = start
         val m = p.measureText(s)
         if (m > maxW && m > 0f) p.textSize = start * maxW / m
     }
 
     /** Baseline that vertically centres [s] on [cy]; leaves its bounds in [tb]. */
-    private fun baseAt(s: String, cy: Float): Float {
+    internal fun baseAt(s: String, cy: Float): Float {
         p.getTextBounds(s, 0, s.length, tb)
         return cy - (tb.top + tb.bottom) / 2f
     }
 
-    private fun clip(s: String, maxW: Float): String {
+    internal fun clip(s: String, maxW: Float): String {
         if (maxW <= 0f) return ""
         if (p.measureText(s) <= maxW) return s
         var n = s.length
@@ -133,7 +174,7 @@ class FlowClockView(ctx: Context) : View(ctx) {
         return s.substring(0, n) + "…"
     }
 
-    private fun batText() = (if (charging) "⚡ " else "") + "$battLevel%"
+    internal fun batText() = (if (charging) "⚡ " else "") + "$battLevel%"
 
     private fun updateBattery(now: Long) {
         if (battAt != 0L && now - battAt < 15000L) return
@@ -147,6 +188,17 @@ class FlowClockView(ctx: Context) : View(ctx) {
         val st = i.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
         charging = st == BatteryManager.BATTERY_STATUS_CHARGING ||
             st == BatteryManager.BATTERY_STATUS_FULL
+        fastCharging = false
+        if (charging) {
+            try {
+                val bm = context.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+                var ua = Math.abs(bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW).toLong())
+                if (ua in 1L..19999L) ua *= 1000L   // some phones report mA instead of microamps
+                fastCharging = ua >= 1200000L       // 1.2 A or more into the battery
+            } catch (e: Exception) {
+                fastCharging = false
+            }
+        }
     }
 
     private fun maybeWeather(now: Long) {
@@ -162,6 +214,38 @@ class FlowClockView(ctx: Context) : View(ctx) {
         if (!started) loadedOnce = true
     }
 
+    private fun updateEvents(now: Long) {
+        if (evAt != 0L && now - evAt < 300000L) return
+        evAt = now
+        calOk = context.checkSelfPermission(Manifest.permission.READ_CALENDAR) ==
+            PackageManager.PERMISSION_GRANTED
+        if (!calOk) {
+            events = emptyList()
+            return
+        }
+        try {
+            val out = ArrayList<Ev>()
+            val cur = CalendarContract.Instances.query(
+                context.contentResolver,
+                arrayOf(
+                    CalendarContract.Instances.TITLE,
+                    CalendarContract.Instances.BEGIN,
+                    CalendarContract.Instances.ALL_DAY
+                ),
+                now,
+                now + 48L * 3600L * 1000L
+            )
+            cur?.use {
+                while (it.moveToNext()) {
+                    out.add(Ev(it.getLong(1), it.getString(0) ?: "", it.getInt(2) == 1))
+                }
+            }
+            events = out.sortedBy { it.begin }.take(4)
+        } catch (e: Exception) {
+            events = emptyList()
+        }
+    }
+
     // ------------------------------------------------------------------ main draw
 
     override fun onDraw(c: Canvas) {
@@ -169,7 +253,8 @@ class FlowClockView(ctx: Context) : View(ctx) {
         cal.timeZone = TimeZone.getDefault()
         cal.timeInMillis = now
         updateBattery(now)
-        if (style == 2) maybeWeather(now)
+        if (style == 2 || style == 9) maybeWeather(now)
+        if (style == 10) updateEvents(now)
 
         val w = width.toFloat()
         val h = height.toFloat()
@@ -180,16 +265,30 @@ class FlowClockView(ctx: Context) : View(ctx) {
         val t = now / 60000.0
         c.save()
         c.translate((sin(t) * drift).toFloat(), (cos(t) * drift).toFloat())
+        frameMs = 0L
         when (style) {
             1 -> drawGradient(c, w, h)
-            2 -> drawAnalog(c, w, h, now)
+            2 -> {
+                drawAnalog(c, w, h, now)
+                frameMs = ANALOG_FRAME_MS
+            }
+            3 -> drawConstellation(c, w, h, now)
+            4 -> drawNeonWolf(c, w, h, now)
+            5 -> drawPixelPet(c, w, h, now)
+            6 -> drawRetroFlip(c, w, h, now)
+            7 -> drawDualRing(c, w, h, now)
+            8 -> drawBoldBlock(c, w, h, now)
+            9 -> drawAmbient(c, w, h, now)
+            10 -> drawGrid(c, w, h, now)
+            11 -> drawSoftGlow(c, w, h, now)
+            12 -> drawKinetic(c, w, h, now)
             else -> drawClock(c, w, h, now)
         }
         c.restore()
 
-        // analog clock redraws ~20x per second for a smooth second hand;
-        // the other styles redraw once per second
-        val delay = if (style == 2) ANALOG_FRAME_MS else 1000L - now % 1000L + 15L
+        // styles with animation ask for a faster redraw through frameMs;
+        // all others redraw once per second
+        val delay = if (frameMs > 0L) frameMs else 1000L - now % 1000L + 15L
         removeCallbacks(tick)
         postDelayed(tick, delay)
     }
@@ -212,9 +311,9 @@ class FlowClockView(ctx: Context) : View(ctx) {
         val ts = hourStr() + ":" + minStr()
 
         pr()
-        p.typeface = tfCond
+        p.typeface = digitFace(tfCond)
         p.color = accent
-        p.textScaleX = 0.82f   // narrower digits, so they look tall
+        p.textScaleX = if (numFace == null) 0.82f else 1f   // narrower digits, so they look tall
         fit(ts, if (land) w * 0.66f else w * 0.9f, if (land) h * 1.0f else w * 0.55f)
         val mw = p.measureText(ts)
         val x0 = if (land) w * 0.05f else (w - mw) / 2f
@@ -256,7 +355,7 @@ class FlowClockView(ctx: Context) : View(ctx) {
         val nH = hs.length
 
         pr()
-        p.typeface = tfBlack
+        p.typeface = digitFace(tfBlack)
         p.textSize = h * 0.95f
         val tight = 0.93f   // pulls the digits closer together
 
@@ -350,7 +449,7 @@ class FlowClockView(ctx: Context) : View(ctx) {
 
         // hour numbers
         pr()
-        p.typeface = tfLight
+        p.typeface = digitFace(tfLight)
         p.color = withAlpha(accent, 0xE0)
         p.textAlign = Paint.Align.CENTER
         p.textSize = r * 0.16f
@@ -376,7 +475,7 @@ class FlowClockView(ctx: Context) : View(ctx) {
         c.drawCircle(cx, cy, r * 0.03f, p)
     }
 
-    private fun hand(
+    internal fun hand(
         c: Canvas, cx: Float, cy: Float, deg: Float,
         len: Float, wid: Float, col: Int, tail: Float
     ) {
@@ -391,7 +490,7 @@ class FlowClockView(ctx: Context) : View(ctx) {
         c.drawLine(cx - tail * sa, cy + tail * ca, cx + len * sa, cy - len * ca, p)
     }
 
-    private fun temp(tc: Double): String {
+    internal fun temp(tc: Double): String {
         val v = if (fahrenheit) tc * 9.0 / 5.0 + 32.0 else tc
         return Math.round(v).toString() + "°"
     }
@@ -496,7 +595,7 @@ class FlowClockView(ctx: Context) : View(ctx) {
         c.drawText("Updated $upd", x, yUpd, p)
     }
 
-    private fun kindOf(code: Int): Wx = when (code) {
+    internal fun kindOf(code: Int): Wx = when (code) {
         0, 1 -> Wx.SUN
         2 -> Wx.PARTLY
         3 -> Wx.CLOUD
@@ -509,7 +608,7 @@ class FlowClockView(ctx: Context) : View(ctx) {
         else -> Wx.CLOUD
     }
 
-    private fun describe(code: Int): String = when (code) {
+    internal fun describe(code: Int): String = when (code) {
         0 -> "Clear sky"
         1 -> "Mainly clear"
         2 -> "Partly cloudy"
@@ -526,7 +625,7 @@ class FlowClockView(ctx: Context) : View(ctx) {
 
     // ---- icons drawn with plain canvas shapes ----
 
-    private fun drawIcon(c: Canvas, k: Wx, isDay: Boolean, cx: Float, cy: Float, s: Float) {
+    internal fun drawIcon(c: Canvas, k: Wx, isDay: Boolean, cx: Float, cy: Float, s: Float) {
         val cloudCol = 0xFFD0D5DB.toInt()
         val sunCol = 0xFFFFC857.toInt()
         when (k) {
@@ -586,7 +685,7 @@ class FlowClockView(ctx: Context) : View(ctx) {
         }
     }
 
-    private fun sun(c: Canvas, cx: Float, cy: Float, r: Float, col: Int) {
+    internal fun sun(c: Canvas, cx: Float, cy: Float, r: Float, col: Int) {
         pr()
         p.color = col
         c.drawCircle(cx, cy, r * 0.55f, p)
@@ -603,7 +702,7 @@ class FlowClockView(ctx: Context) : View(ctx) {
         }
     }
 
-    private fun moon(c: Canvas, cx: Float, cy: Float, r: Float) {
+    internal fun moon(c: Canvas, cx: Float, cy: Float, r: Float) {
         pr()
         p.color = 0xFFE8E8EC.toInt()
         c.drawCircle(cx, cy, r * 0.75f, p)
@@ -611,7 +710,7 @@ class FlowClockView(ctx: Context) : View(ctx) {
         c.drawCircle(cx + r * 0.35f, cy - r * 0.25f, r * 0.65f, p)
     }
 
-    private fun cloud(c: Canvas, cx: Float, cy0: Float, s: Float, col: Int) {
+    internal fun cloud(c: Canvas, cx: Float, cy0: Float, s: Float, col: Int) {
         val cy = cy0 + s * 0.06f
         pr()
         p.color = col
@@ -625,3 +724,5 @@ class FlowClockView(ctx: Context) : View(ctx) {
         private const val ANALOG_FRAME_MS = 50L
     }
 }
+
+internal class Ev(val begin: Long, val title: String, val allDay: Boolean)
